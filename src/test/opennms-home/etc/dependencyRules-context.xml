@@ -6,10 +6,6 @@
         http://www.springframework.org/schema/tx
         http://www.springframework.org/schema/tx/spring-tx-2.0.xsd">
         
-    <!--  tx:annotation-driven / -->
-    
-    <bean name="nodeService" class="org.opennms.netmgt.correlation.drools.DefaultNodeService">
 
-    </bean>
         
 </beans>
