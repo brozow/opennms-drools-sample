@@ -35,6 +35,17 @@ declare DependsOn
 	b : Object
 end
 
+declare Impacted	
+	target : Object
+	cause : Event
+end
+
+declare Resolved
+	cause : Event
+	resolution : Event
+end
+	
+
 rule "init"
 	salience 10000 // set this very large so this rule has highest priority
 when
@@ -104,6 +115,21 @@ then
 	insert( impact( $s, $e ) );
 end
 
+rule "service up"
+	salience 100
+when
+	$downEvent : Event( uei matches ".*nodeLostService", $nodeid : nodeid, $addr : interfaceAddress, $svc : service == "ICMP" )
+	$upEvent : Event( uei matches ".*nodeRegainedService", nodeid ==  $nodeid, interfaceAddress == $addr, service == $svc )
+	$s : Service( node == $nodeid, addr == $addr, svc == $svc )
+	$impacted : Impacted( target == $s, cause == $downEvent )
+then
+	retract( $downEvent );
+	retract( $upEvent );
+	retract( $impacted );
+	insert( resolve( $downEvent, $upEvent ) );
+	println( "Resolved down event " + $downEvent );
+end
+
 
 rule "impacted service"
 	salience 400
@@ -117,6 +143,19 @@ then
 	sendImpactedServiceEvent( engine, $a, $e );
 end	
 
+rule "resolved service"
+	salience 400
+when
+	$s : Service()
+	$i : Impacted( target == $s, $cause : cause )
+	$r : Resolved( cause == $cause )
+then
+	println( " Resolving Impact " + $i );
+	retract( $i ); 
+	sendResolvedServiceEvent(engine, $s, $cause);
+end
+
+
 rule "impacted app"
 	salience 300
 when
@@ -127,7 +166,19 @@ then
 	println( "Application " + $a + " depends on impacted service " + $b + " with cause " + $e.getUei()  + " with id " + $e.getDbid() );
 	insert( impact( $a, $e ) );
 	sendImpactedApplicationEvent( engine, $a, $e );
-end	
+end
+
+rule "resolved app"
+	salience 400
+when
+	$a : Application()
+	$i : Impacted( target == $a, $cause : cause )
+	$r : Resolved( cause == $cause )
+then
+	println( " Resolving Impact " + $i );
+	retract( $i ); 
+	sendResolvedApplicationEvent( engine, $a, $cause );
+end
 
 
 function Service svc( long nodeId, String addr, String svc )
@@ -155,6 +206,14 @@ function Impacted impact( Object target, Event cause )
 	return i;
 }
 
+function Resolved resolve( Event cause, Event resolution )
+{
+	Resolved r = new Resolved();
+	r.setCause( cause );
+	r.setResolution( resolution );
+	return r;
+}
+
 function void println(Object msg)
 {
 	System.err.println(new Date() + " : " + msg);
@@ -176,6 +235,16 @@ function void sendImpactedServiceEvent( DroolsCorrelationEngine engine, Service 
 	engine.sendEvent(bldr.getEvent());
 }
 
+function void sendResolvedServiceEvent( DroolsCorrelationEngine engine, Service svc, Event e)
+{
+	EventBuilder bldr = new EventBuilder( "serviceRestored", "Drools" );
+	bldr.setNodeid( svc.getNode() );
+	bldr.setInterface( svc.getAddr() );
+	bldr.setService( svc.getSvc() );
+	bldr.addParam("CAUSE", e.getDbid() );
+	engine.sendEvent(bldr.getEvent());
+}
+
 function void sendImpactedApplicationEvent( DroolsCorrelationEngine engine, Application a, Event e )
 {
 	EventBuilder bldr = new EventBuilder( "applicationImpacted", "Drools" );
@@ -184,4 +253,11 @@ function void sendImpactedApplicationEvent( DroolsCorrelationEngine engine, Appl
 	engine.sendEvent(bldr.getEvent());
 }
 
+function void sendResolvedApplicationEvent( DroolsCorrelationEngine engine, Application a, Event e)
+{
+	EventBuilder bldr = new EventBuilder( "applicationRestored", "Drools" );
+	bldr.addParam( "APP", a.getName() );
+	bldr.addParam( "CAUSE", e.getDbid() );
+	engine.sendEvent(bldr.getEvent());
+}
 

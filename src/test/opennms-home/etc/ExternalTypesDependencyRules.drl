@@ -96,9 +96,12 @@ rule "service up"
 when
 	$downEvent : Event( uei matches ".*nodeLostService", $nodeid : nodeid, $addr : interfaceAddress, $svc : service == "ICMP" )
 	$upEvent : Event( uei matches ".*nodeRegainedService", nodeid ==  $nodeid, interfaceAddress == $addr, service == $svc )
+	$s : Service( node == $nodeid, addr == $addr, svc == $svc )
+	$impacted : Impacted( target == $s, cause == $downEvent )
 then
 	retract( $downEvent );
 	retract( $upEvent );
+	retract( $impacted );
 	insert( new Resolved( $downEvent, $upEvent ) );
 	println( "Resolved down event " + $downEvent );
 end
@@ -126,6 +129,7 @@ when
 then
 	println( " Resolving Impact " + $i );
 	retract( $i ); 
+	sendResolvedServiceEvent(engine, $s, $cause);
 end
 
 rule "impacted app"
@@ -149,6 +153,7 @@ when
 then
 	println( " Resolving Impact " + $i );
 	retract( $i ); 
+	sendResolvedApplicationEvent( engine, $a, $cause );
 end
 
 rule "clean up resolutions"
@@ -181,6 +186,16 @@ function void sendImpactedServiceEvent( DroolsCorrelationEngine engine, Service 
 	engine.sendEvent(bldr.getEvent());
 }
 
+function void sendResolvedServiceEvent( DroolsCorrelationEngine engine, Service svc, Event e)
+{
+	EventBuilder bldr = new EventBuilder( "serviceRestored", "Drools" );
+	bldr.setNodeid( svc.getNode() );
+	bldr.setInterface( svc.getAddr() );
+	bldr.setService( svc.getSvc() );
+	bldr.addParam("CAUSE", e.getDbid() );
+	engine.sendEvent(bldr.getEvent());
+}
+
 function void sendImpactedApplicationEvent( DroolsCorrelationEngine engine, Application a, Event e )
 {
 	EventBuilder bldr = new EventBuilder( "applicationImpacted", "Drools" );
@@ -189,4 +204,10 @@ function void sendImpactedApplicationEvent( DroolsCorrelationEngine engine, Appl
 	engine.sendEvent(bldr.getEvent());
 }
 
-
+function void sendResolvedApplicationEvent( DroolsCorrelationEngine engine, Application a, Event e)
+{
+	EventBuilder bldr = new EventBuilder( "applicationRestored", "Drools" );
+	bldr.addParam( "APP", a.getName() );
+	bldr.addParam( "CAUSE", e.getDbid() );
+	engine.sendEvent(bldr.getEvent());
+}
