@@ -42,11 +42,22 @@ public class DependencyRulesTest extends CorrelationRulesTestCase {
     private EasyMockUtils m_mocks = new EasyMockUtils();
     
     @Test
-    public void testInitialize() throws Exception {
+    public void testEmbeddedTypesRules() throws Exception {
+        testDependencyRules("embeddedTypesDependencyRules");
+    }
+    
+    @Test
+    public void testExternalTypesRules() throws Exception {
+        testDependencyRules("externalTypesDependencyRules");
+    }
+
+	private void testDependencyRules(String engineName) {
+		
+		getAnticipator().reset();
+		
+		anticipate( createInitializedEvent( 1, 1 ) );
         
-        anticipate( createInitializedEvent( 1, 1 ) );
-        
-    	EventBuilder bldr = new EventBuilder( "impactedService", "Drools" );
+    	EventBuilder bldr = new EventBuilder( "serviceImpacted", "Drools" );
     	bldr.setNodeid( 1 );
     	bldr.setInterface( addr( "10.1.1.1" ) );
     	bldr.setService( "HTTP" );
@@ -54,26 +65,55 @@ public class DependencyRulesTest extends CorrelationRulesTestCase {
 
     	anticipate( bldr.getEvent() );
     	
-    	bldr = new EventBuilder( "impactedApplication", "Drools" );
+    	bldr = new EventBuilder( "applicationImpacted", "Drools" );
     	bldr.addParam("APP", "e-commerce" );
     	bldr.addParam("CAUSE", 17 );
     	
     	anticipate( bldr.getEvent() );
         
-        DroolsCorrelationEngine engine = findEngineByName("dependencyRules");
+    	bldr = new EventBuilder( "applicationImpacted", "Drools" );
+    	bldr.addParam("APP", "hr-portal" );
+    	bldr.addParam("CAUSE", 17 );
+    	
+    	anticipate( bldr.getEvent() );
+        
+		DroolsCorrelationEngine engine = findEngineByName(engineName);
 
         Event event = createNodeLostServiceEvent( 1, "10.1.1.1", "ICMP" );
         event.setDbid(17);
+        System.err.println("SENDING nodeLostService EVENT!!");
 		engine.correlate( event );
+		
+		getAnticipator().verifyAnticipated();
+		
+    	bldr = new EventBuilder( "serviceRestored", "Drools" );
+    	bldr.setNodeid( 1 );
+    	bldr.setInterface( addr( "10.1.1.1" ) );
+    	bldr.setService( "HTTP" );
+    	bldr.addParam("CAUSE", 17 );
 
-        // event + initialized
-        m_anticipatedMemorySize = 18;
+    	anticipate( bldr.getEvent() );
+    	
+    	bldr = new EventBuilder( "applicationRestored", "Drools" );
+    	bldr.addParam("APP", "e-commerce" );
+    	bldr.addParam("CAUSE", 17 );
+    	
+    	anticipate( bldr.getEvent() );
         
-        m_mocks.verifyAll();
+    	bldr = new EventBuilder( "applicationRestored", "Drools" );
+    	bldr.addParam("APP", "hr-portal" );
+    	bldr.addParam("CAUSE", 17 );
+    	
+    	anticipate( bldr.getEvent() );
+		
+        event = createNodeRegainedServiceEvent( 1, "10.1.1.1", "ICMP" );
+        event.setDbid(18);
+        System.err.println("SENDING nodeRegainedService EVENT!!");
+		engine.correlate( event );
+		
+		getAnticipator().verifyAnticipated();
 
-        verify(engine);
-        
-    }
+	}
     
     private Event createInitializedEvent(int symptom, int cause) {
         return new EventBuilder("initialized", "Drools").getEvent();

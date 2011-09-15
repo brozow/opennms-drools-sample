@@ -21,32 +21,26 @@ declare Initialized
 end
 
 declare Service
-	node : Long @key @position(0)
-	addr : InetAddress @key @position(1)
-	svc  : String @key @position(2)
+	node : Long
+	addr : InetAddress
+	svc  : String
 end
 
 declare Application
-	name : String @key
+	name : String
 end
 
 declare DependsOn
-	a : Object @key
-	b : Object @key
+	a : Object
+	b : Object
 end
-
-declare Impacted
-	target : Object 
-	cause  : Object 
-end
-
 
 rule "init"
 	salience 10000 // set this very large so this rule has highest priority
 when
 	not Initialized()
 then
-	println( "Initializing Knowledgedbase!!!" );
+	println( "Initializing EmbeddedTypes Knowledgedbase!!!" );
 	
 	// Set up nodes and edges for dependency graph
 	
@@ -74,9 +68,15 @@ then
 		
 	// dependencies
 	// Note: Service Depends on ICMP is a separate rule
-	insert( new DependsOn( http, eCommerce ) );
-	insert( new DependsOn( dns, eCommerce ) );
-	insert( new DependsOn( db, eCommerce ) ); 
+	insert( dep( eCommerce, http ) );
+	insert( dep( eCommerce, dns ) );
+	insert( dep( eCommerce, db ) ); 
+	
+	Application hrPortal = new Application( "hr-portal" );
+	insert( hrPortal );
+		
+	insert( dep( hrPortal, http ) );
+	insert( dep( hrPortal, dns ) );
 	
 	insert( new Initialized() );
 		
@@ -90,77 +90,43 @@ when
 	$svc : Service( $n : node, $a : addr, svc != "ICMP" )
 	$icmp : Service( node == $n, addr == $a, svc == "ICMP" ) 
 then
-	insert( new DependsOn( $icmp, $svc ) );
+	insert( dep( $svc, $icmp ) );
 end	
 
 rule "service down"
 	salience 500
 when
-	$e : Event( $uei : uei matches ".*nodeLostService", $nodeid : nodeid, $addr : interfaceAddress, $svc : service == "ICMP" )
+	$e : Event( uei matches ".*nodeLostService", $nodeid : nodeid, $addr : interfaceAddress, $svc : service == "ICMP" )
 	$s : Service( node == $nodeid, addr == $addr, svc == $svc ) 
 //	not ( Impacted( target == $s ) )
 then
 	println( "Service " + $s + " is down!" );
-	Impacted i = new Impacted();
-	i.setTarget( $s );
-	i.setCause( $e );
-	insert( i );
+	insert( impact( $s, $e ) );
 end
 
-rule "debug services"
-	salience 600
-when
-	$s : Service()
-then
-	println( "Service: " + $s );
-end
-
-rule "dependencies"
-	salience 500
-when
-	$d : DependsOn()
-then
-	println( "DependsOn: " + $d );
-end
-
-rule "debug impacts"
-	salience 500
-when
-	$i : Impacted()
-then
-	println( "Impacted: " + $i );
-end
 
 rule "impacted service"
 	salience 400
 when
-	$a : Service( $node : node, $addr : addr, $svcName : svc )
-	$e : Event( $id : dbid, $uei : uei )
-	DependsOn( a == $a, $b : b )
-	Impacted( target == $b, cause == $e )
+	$a : Service()
+	$i : Impacted( $b : target, $e : cause );
+	DependsOn( a == $a, b == $b )
 then
-	println( "Service " + $a + " depends on impacted service " + $b + " with cause " + $uei  + " with id " + $id );
-	Impacted i = new Impacted();
-	i.setTarget( $a );
-	i.setCause( $e );
-	insert( i );
-	sendImpactedServiceEvent( engine, $node, $addr, $svcName, $id );
+	println( "Service " + $a + " depends on impacted service " + $b + " with cause " + $e.getUei()  + " with id " + $e.getDbid() );
+	insert( impact( $a, $e ) );
+	sendImpactedServiceEvent( engine, $a, $e );
 end	
 
 rule "impacted app"
 	salience 300
 when
-	$a : Application( $name : name )
-	$e : Event( $id : dbid, $uei : uei )
-	Impacted( $b : target, cause == $e )
+	$a : Application()
+	Impacted( $b : target, $e : cause )
 	DependsOn( a == $a, b == $b )
 then
-	println( "Application " + $a + " depends on impacted service " + $b + " with cause " + $uei  + " with id " + $id );
-	Impacted i = new Impacted();
-	i.setTarget( $a );
-	i.setCause( $e );
-	insert( i );
-	sendImpactedApplicationEvent( engine, $name, $id );
+	println( "Application " + $a + " depends on impacted service " + $b + " with cause " + $e.getUei()  + " with id " + $e.getDbid() );
+	insert( impact( $a, $e ) );
+	sendImpactedApplicationEvent( engine, $a, $e );
 end	
 
 
@@ -173,9 +139,20 @@ function Service svc( long nodeId, String addr, String svc )
 	return service;
 }
 
-function String svcStr( Long nodeId, InetAddress addr, String svcName )
+function DependsOn dep( Object a, Object b )
 {
-	return "Service " + nodeId + ":" + str( addr ) + ":" + svcName;
+	DependsOn d = new DependsOn();
+	d.setA( a );
+	d.setB( b );
+	return d;
+}
+
+function Impacted impact( Object target, Event cause )
+{
+	Impacted i = new Impacted();
+	i.setTarget( target );
+	i.setCause( cause );
+	return i;
 }
 
 function void println(Object msg)
@@ -189,21 +166,21 @@ function void sendInitEvent( DroolsCorrelationEngine engine )
 	engine.sendEvent(bldr.getEvent());
 }
 
-function void sendImpactedServiceEvent( DroolsCorrelationEngine engine, Long nodeid, InetAddress ipAddr, String svcName, int eventId )
+function void sendImpactedServiceEvent( DroolsCorrelationEngine engine, Service svc, Event e )
 {
-	EventBuilder bldr = new EventBuilder( "impactedService", "Drools" );
-	bldr.setNodeid( nodeid );
-	bldr.setInterface( ipAddr );
-	bldr.setService( svcName );
-	bldr.addParam("CAUSE", eventId );
+	EventBuilder bldr = new EventBuilder( "serviceImpacted", "Drools" );
+	bldr.setNodeid( svc.getNode() );
+	bldr.setInterface( svc.getAddr() );
+	bldr.setService( svc.getSvc() );
+	bldr.addParam("CAUSE", e.getDbid() );
 	engine.sendEvent(bldr.getEvent());
 }
 
-function void sendImpactedApplicationEvent( DroolsCorrelationEngine engine, String appName, int eventId )
+function void sendImpactedApplicationEvent( DroolsCorrelationEngine engine, Application a, Event e )
 {
-	EventBuilder bldr = new EventBuilder( "impactedApplication", "Drools" );
-	bldr.addParam("APP", appName );
-	bldr.addParam("CAUSE", eventId );
+	EventBuilder bldr = new EventBuilder( "applicationImpacted", "Drools" );
+	bldr.addParam("APP", a.getName() );
+	bldr.addParam("CAUSE", e.getDbid() );
 	engine.sendEvent(bldr.getEvent());
 }
 
