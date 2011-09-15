@@ -1,4 +1,4 @@
-package com.example.sample.drools;
+package com.example.sample.drools.external;
 
 public class DependsOn {
 	private Object m_a;

@@ -1,4 +1,4 @@
-package com.example.sample.drools;
+package com.example.sample.drools.external;
 
 import static org.opennms.core.utils.InetAddressUtils.addr;
 

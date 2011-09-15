@@ -1,4 +1,4 @@
-package com.example.sample.drools;
+package com.example.sample.drools.external;
 
 public class Application {
 	private String m_name;

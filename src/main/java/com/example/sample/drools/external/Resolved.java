@@ -1,4 +1,4 @@
-package com.example.sample.drools;
+package com.example.sample.drools.external;
 
 import org.opennms.netmgt.xml.event.Event;
 
